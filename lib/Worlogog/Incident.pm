@@ -3,26 +3,24 @@ package Worlogog::Incident;
 use warnings;
 use strict;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
-use Sub::Exporter -setup => {
-	exports => [
-		qw(
-			handler_bind
-			handler_case
-			report
-			error
-			cerror
-			warn
-		)
-	],
-};
-
-use Carp qw(carp croak);
+use Carp qw(carp);
 use Scope::OnExit::Wrap qw(on_scope_exit);
 use Return::MultiLevel qw(with_return);
 use Worlogog::Restart;
 use Dispatch::Class qw(dispatch class_case);
+
+use parent 'Exporter::Tiny';
+
+our @EXPORT_OK = qw(
+    handler_bind
+    handler_case
+    report
+    error
+    cerror
+    warn
+);
 
 #our @CARP_NOT = qw(Worlogog::Restart);
 
@@ -33,79 +31,79 @@ our $barrier;
 # hakurei
 
 sub handler_bind (&$) {
-	my ($body, $handler) = @_;
-	my $limit = @handlers;
-	my $guard = on_scope_exit { splice @handlers, $limit };
-	if (ref($handler) eq 'ARRAY') {
-		$handler = dispatch @$handler;
-	}
-	push @handlers, \&$handler;
-	$body->()
+    my ($body, $handler) = @_;
+    my $limit = @handlers;
+    my $guard = on_scope_exit { splice @handlers, $limit };
+    if (ref($handler) eq 'ARRAY') {
+        $handler = dispatch @$handler;
+    }
+    push @handlers, \&$handler;
+    $body->()
 }
 
 sub handler_case (&$) {
-	my ($body, $genhandler) = @_;
-	my $limit = @handlers;
-	my $guard = on_scope_exit { splice @handlers, $limit };
-	if (ref($genhandler) eq 'ARRAY') {
-		$genhandler = class_case @$genhandler;
-	}
-	$genhandler = \&$genhandler;
-	my $wantlist = wantarray;
-	my @v = with_return {
-		my ($return) = @_;
-		push @handlers, sub {
-			my $handler = $genhandler->(@_) or return;
-			$return->($handler, @_);
-		};
-		unless (defined $wantlist) {
-			$body->();
-			return;
-		}
-		undef, $wantlist ? $body->() : scalar $body->()
-	};
-	if (my $f = shift @v) {
-		return $f->(@v);
-	}
-	$wantlist ? @v : $v[0]
+    my ($body, $genhandler) = @_;
+    my $limit = @handlers;
+    my $guard = on_scope_exit { splice @handlers, $limit };
+    if (ref($genhandler) eq 'ARRAY') {
+        $genhandler = class_case @$genhandler;
+    }
+    $genhandler = \&$genhandler;
+    my $wantlist = wantarray;
+    my @v = with_return {
+        my ($return) = @_;
+        push @handlers, sub {
+            my $handler = $genhandler->(@_) or return;
+            $return->($handler, @_);
+        };
+        unless (defined $wantlist) {
+            $body->();
+            return;
+        }
+        undef, $wantlist ? $body->() : scalar $body->()
+    };
+    if (my $f = shift @v) {
+        return $f->(@v);
+    }
+    $wantlist ? @v : $v[0]
 }
 
 
 # reimu
 
 sub report {
-	my ($incident) = @_;
-	my $limit = defined $barrier ? $barrier : $#handlers;
-	for my $i (reverse 0 .. $limit) {
-		my $h = $handlers[$i];
-		local $barrier = $i - 1;
-		$h->($incident);
-	}
+    my ($incident) = @_;
+    my $limit = defined $barrier ? $barrier : $#handlers;
+    for my $i (reverse 0 .. $limit) {
+        my $h = $handlers[$i];
+        local $barrier = $i - 1;
+        $h->($incident);
+    }
 }
 
 sub error {
-	my ($incident) = @_;
-	report $incident;
-	die $incident;
+    my ($incident) = @_;
+    report $incident;
+    die $incident;
 }
 
 sub cerror {
-	my ($incident) = @_;
-	Worlogog::Restart::case {
-		error $incident;
-	} {
-		continue => sub {},
-	};
+    my ($incident) = @_;
+    Worlogog::Restart::case {
+        error $incident;
+    } {
+        continue => sub {},
+    };
 }
 
 sub warn {
-	my ($incident) = @_;
-	Worlogog::Restart::case {
-		report $incident;
-		carp $incident;
-	} {
-		muffle_warning => sub {},
-	};
+    my ($incident) = @_;
+    Worlogog::Restart::case {
+        report $incident;
+        carp $incident;
+    } {
+        muffle_warning => sub {},
+    };
 }
 
 'ok'
@@ -119,7 +117,7 @@ Worlogog::Incident - Lisp-style resumable exceptions (conditions)
 =head1 SYNOPSIS
 
   use Worlogog::Incident -all => { -prefix => 'incident_' };
-  use Worlogog::Restart -all => { -prefix => 'restart_' };
+  use Worlogog::Restart  -all => { -prefix => 'restart_' };
   
   sub log_analyzer {
     incident_handler_bind {
@@ -266,7 +264,8 @@ I<INCIDENT> as a normal Perl exception. Equivalent to:
 
 =item cerror INCIDENT
 
-Works like C<error> with a L<restart|Worlogog::Restart> called C<'continue'> wrapped around it:
+Works like C<error> with a L<restart|Worlogog::Restart> called C<'continue'>
+wrapped around it:
 
   sub cerror {
     my ($incident) = @_;
@@ -299,12 +298,13 @@ C<'muffle_warning'> is invoked. Equivalent to:
 
 =back
 
-This module uses L<C<Sub::Exporter>|Sub::Exporter>, so you can rename the
+This module uses L<C<Exporter::Tiny>|Exporter::Tiny>, so you can rename the
 imported functions at L<C<use>|perlfunc/use> time.
 
 =head1 SEE ALSO
 
-L<Sub::Exporter>, L<Worlogog::Restart>, L<Return::MultiLevel>, L<Dispatch::Class>
+L<Exporter::Tiny>, L<Worlogog::Restart>, L<Return::MultiLevel>,
+L<Dispatch::Class>
 
 =head1 AUTHOR
 
@@ -312,7 +312,7 @@ Lukas Mai, C<< <l.mai at web.de> >>
 
 =head1 COPYRIGHT & LICENSE
 
-Copyright 2013 Lukas Mai.
+Copyright 2013, 2014 Lukas Mai.
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of either: the GNU General Public License as published
